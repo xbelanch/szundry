@@ -9,33 +9,39 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "./stb_image.h"
 
+// SDL Check Code
+int scc(int code)
+{
+    if (code < 0) {
+        fprintf(stderr, "SDL Error: %s\n", SDL_GetError());
+        exit(1);
+    } else return code;
+}
+
+// SDL Check Pointer
+void *scp(void *ptr)
+{
+    if (ptr == NULL) {
+        fprintf(stderr, "SDL Error: %s\n", SDL_GetError());
+        exit(1);
+    } else return ptr;
+}
+
 // Check video display and drivers before SDL initialization
 void scv()
 {
-    int dps = SDL_GetNumVideoDisplays();
-
-    if (dps >= 1) {
-        printf("Number of video displays available: %d\n"
-               "=====================================\n", dps);
-    } else {
-        printf("SDL Error: %s\n", SDL_GetError());
-        exit(1);
-    }
-
-    int dvrs = SDL_GetNumVideoDrivers();
+    int dps = scc(SDL_GetNumVideoDisplays());
+    printf("Number of video displays available: %d\n"
+           "=====================================\n", dps);
+    int dvrs = scc(SDL_GetNumVideoDrivers());
     printf("Number of video drivers avalaible: %d\n"
            "====================================\n", dvrs);
-    if (dvrs >= 1) {
-        for (int i = 0; i < dvrs; ++i) {
-            if (strcmp(SDL_GetVideoDriver(i), SDL_GetCurrentVideoDriver()) == 0) {
-                printf("%d: %s(*)\n", i, SDL_GetCurrentVideoDriver());
-            } else {
-                printf("%d: %s\n", i, SDL_GetVideoDriver(i));
-            }
+    for (int i = 0; i < dvrs; ++i) {
+        if (strcmp(SDL_GetVideoDriver(i), SDL_GetCurrentVideoDriver()) == 0) {
+            printf("%d: %s(*)\n", i, SDL_GetCurrentVideoDriver());
+        } else {
+            printf("%d: %s\n", i, SDL_GetVideoDriver(i));
         }
-    } else {
-        printf("SDL Error: %s\n", SDL_GetError());
-        exit(1);
     }
 }
 
@@ -44,14 +50,9 @@ void scs(SDL_Renderer *renderer)
 {
 	SDL_RendererInfo info;
 	SDL_GetRendererInfo(renderer, &info);
-	int num = SDL_GetNumRenderDrivers();
-    if (num >= 1) {
-        printf("Number of rendering drivers: %d\n"
-               "==============================\n", num);
-    } else {
-        printf("SDL Error: %s\n", SDL_GetError());
-        exit(1);
-    }
+	int num = scc(SDL_GetNumRenderDrivers());
+    printf("Number of rendering drivers: %d\n"
+           "==============================\n", num);
 
 	for (int i = 0; i < num; i++) {
 		SDL_RendererInfo info;
@@ -64,23 +65,46 @@ void scs(SDL_Renderer *renderer)
 	}
 }
 
-// SDL Check Code
-void scc(int code)
+SDL_Surface *generateProceduralSurface(size_t width, size_t height)
 {
-    if (code < 0) {
-        fprintf(stderr, "SDL Error: %s\n", SDL_GetError());
-        exit(1);
-    }
-}
+    /* Create a 32-bit surface with the bytes of each pixel in R,G,B,A order,
+       as expected by OpenGL for textures */
+    SDL_Surface *surface;
+    Uint32 rmask, gmask, bmask, amask;
+    /* SDL interprets each pixel as a 32-bit number, so our masks must depend
+       on the endianness (byte order) of the machine */
+#if SDL_BYTEORDER == SDL_BIG_ENDIAN
+    rmask = 0xff000000;
+    gmask = 0x00ff0000;
+    bmask = 0x0000ff00;
+    amask = 0x000000ff;
+#else
+    rmask = 0x000000ff;
+    gmask = 0x0000ff00;
+    bmask = 0x00ff0000;
+    amask = 0xff000000;
+#endif
 
-// SDL Check Pointer
-void *scp(void *ptr)
-{
-    if (ptr == NULL) {
-        fprintf(stderr, "SDL Error: %s\n", SDL_GetError());
+    surface = SDL_CreateRGBSurface(0, width, height, 32, rmask, gmask, bmask, amask);
+
+    if (surface == NULL) {
+        SDL_Log("SDL_CreateRGBSurface() failed: %s", SDL_GetError());
         exit(1);
     }
-    return ptr;
+
+    SDL_LockSurface(surface);
+    SDL_memset(surface->pixels, 0, height * width);
+    Uint32* pixels = (Uint32*)surface->pixels;
+
+    for (int j = 0; j < surface->h; ++j) {
+        for (int i = 0 ; i < surface->w; ++i) {
+            pixels[j * surface->w + i] = (i ^ j) << 24 | (i ^ j) << 16 | (i ^ j) << 8 | 0xff;
+
+        }
+    }
+
+    SDL_UnlockSurface(surface);
+    return surface;
 }
 
 int main(int argc, char *argv[])
@@ -97,6 +121,8 @@ int main(int argc, char *argv[])
         scp(SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED));
     scs(renderer);
 
+    SDL_Surface *surface = scp(generateProceduralSurface(WINDOW_WIDTH, WINDOW_HEIGHT));
+    SDL_Texture *texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, surface->w, surface->h);
     bool quit = false;
     while (!quit) {
         SDL_Event event = {0};
@@ -107,6 +133,29 @@ int main(int argc, char *argv[])
             } break;
             }
         }
+
+        scc(SDL_SetRenderDrawColor(renderer, 0x0, 0x0, 0x0, 0xff));
+        scc(SDL_RenderClear(renderer));
+
+        // Manipulate texture
+        void *pixels;
+        SDL_LockTexture(texture, 0, &pixels, &(surface->pitch));
+        memcpy(pixels, surface->pixels, surface->w * surface->h * 4);
+        Uint32 *upixels = (Uint32 *)pixels;
+        // Get or modify pixels
+        #define TILE_W 32
+        #define TILE_H 32
+        for (size_t i = 0; i < TILE_H; ++i) {
+            for (size_t j = 0; j < TILE_W; ++j) {
+                upixels[i * surface->w + j] = 0xff00ffff;
+            }
+        }
+        SDL_UnlockTexture(texture);
+
+        // Copy texture to renderer
+        scc(SDL_RenderCopy(renderer, texture, 0, 0));
+
+
         // Display VRAM data to Window
         SDL_RenderPresent(renderer);
         // Delay 100 milliseconds
@@ -114,6 +163,8 @@ int main(int argc, char *argv[])
     }
 
     // Destroy all the shitty stuff
+    SDL_FreeSurface(surface);
+    SDL_DestroyTexture(texture);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
@@ -121,20 +172,9 @@ int main(int argc, char *argv[])
     return (0);
 }
 
+
+
 // -- TUNNEL_
-// static void check_video_after(Screen* screen)
-// {
-// 	SDL_RendererInfo renderer_info;
-// 	SDL_GetRendererInfo(screen->renderer, &renderer_info);
-// 	int n = SDL_GetNumRenderDrivers();
-// 	LOG("Rendering drivers (%i):", n);
-// 	for (int i = 0; i < n; i++) {
-// 		SDL_RendererInfo info;
-// 		SDL_GetRenderDriverInfo(i, &info);
-// 		LOG(" '%s'", info.name);
-// 	}
-// 	LOG(", active = '%s'\n", renderer_info.name);
-// }
 
 // void generateTexture(Tunnel* tunnel)
 // {
@@ -305,8 +345,8 @@ int main(int argc, char *argv[])
 // 		tunnel->bitmap->height);
 
 // 	return tunnel;
-// }
 
+// }
 // #endif // !TUNNEL_H
 
 
