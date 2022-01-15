@@ -72,7 +72,8 @@ int main(int argc, char *argv[])
     // Generate texture
     for (int y = 0; y < WINDOW_HEIGHT; ++y) {
         for (int x = 0; x < WINDOW_WIDTH; ++x) {
-            texture[y * WINDOW_WIDTH + x] = (y ^ x) << 24 | (y ^ x) << 16 | (y ^ x) << 8 | 0xff;
+            // texture[y * WINDOW_WIDTH + x] = (y ^ x) << 24 | (y ^ x) << 16 | (y ^ x) << 8 | 0xff;
+            texture[y * WINDOW_WIDTH + x] = ((x * 256 / 256) ^ (y * 256 / 256)) << 8 | 0xff;
         }
     }
 
@@ -87,8 +88,10 @@ int main(int argc, char *argv[])
 
     SDL_Texture *gpu_texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, WINDOW_WIDTH, WINDOW_HEIGHT);
 
+    float time = 0.0;
     bool quit = false;
     while (!quit) {
+
         SDL_Event event = {0};
         while (SDL_PollEvent(&event)) {
             switch (event.key.keysym.sym) {
@@ -103,13 +106,19 @@ int main(int argc, char *argv[])
 
         // Manipulate texture
         void *pixels;
-        int pitch = 4;
+        int pitch;
 
-        // Initialize the buffer
+        //calculate the shift values out of the animation value
+        int shiftX = (int)(256 * 1.0 * time);
+        int shiftY = (int)(256 * 0.25 * time);
+        time += 0.05;
+        // if (time >= 360.0) time = 0.0;
+
         for (int y = 0; y < WINDOW_HEIGHT; ++y) {
             for (int x = 0; x < WINDOW_WIDTH; ++x) {
-                unsigned int c_x = tunnel.distance[y * WINDOW_WIDTH + x] % 128;
-                unsigned int c_y = tunnel.angle[y * WINDOW_WIDTH + x] % 128;
+                // Get the texel from the texture by using the tables, shifted with the animation values
+                unsigned int c_x = (tunnel.distance[y * WINDOW_WIDTH + x] + shiftX) % 256;
+                unsigned int c_y = (tunnel.angle[y * WINDOW_WIDTH + x] + shiftY) % 256;
                 Uint32 color = texture[c_y * WINDOW_WIDTH + c_x];
                 buffer[y * WINDOW_WIDTH + x] = color;
             }
@@ -124,7 +133,7 @@ int main(int argc, char *argv[])
         // Display VRAM data to Window
         SDL_RenderPresent(renderer);
         // Delay 100 milliseconds
-        SDL_Delay(100);
+        SDL_Delay(60);
     }
 
     return (0);
